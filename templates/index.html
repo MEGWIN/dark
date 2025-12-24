@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>MEGWIN Live Survival</title>
+<style>
+    body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: transparent; }
+    #grid-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; display: grid; grid-template-columns: repeat(var(--cols), 1fr); grid-template-rows: repeat(var(--rows), 1fr); pointer-events: none; z-index: 10; }
+    .block { width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.95); opacity: 0; transform: scale(0.1); border-radius: 20%; transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+    .block.active { opacity: 1; transform: scale(1); border-radius: 0%; animation: glitch-appear 0.5s ease-out; }
+    @keyframes glitch-appear { 0% { box-shadow: 0 0 15px #0f0 inset; border: 1px solid #0f0; } 100% { box-shadow: 0 0 0 rgba(0,0,0,0) inset; border: 0px solid transparent; } }
+    #damage-flash, #heal-flash { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20; transition: background-color 0.1s; }
+    #game-over { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: red; font-size: 6rem; font-weight: bold; opacity: 0; z-index: 30; text-shadow: 5px 5px 0 #000; font-family: 'Impact', sans-serif; pointer-events: none; transition: opacity 0.5s; }
+    #status-bar { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); color: #0f0; background: rgba(0, 0, 0, 0.85); padding: 10px 25px; border: 2px solid #0f0; z-index: 100; font-family: 'Courier New', monospace; font-weight: bold; font-size: 24px; box-shadow: 0 0 10px #0f0; }
+    #connection-status { position: absolute; top: 10px; left: 10px; color: yellow; font-size: 12px; z-index: 9999; text-shadow: 1px 1px 0 #000; }
+</style>
+</head>
+<body>
+<div id="connection-status">Connecting...</div>
+<div id="grid-container"></div>
+<div id="damage-flash"></div><div id="heal-flash"></div>
+<div id="game-over">SYSTEM DOWN</div>
+<div id="status-bar">DANGER LEVEL: <span id="score-val">10000</span> / 20000</div>
+<script>
+    const MAX_DARKNESS = 20000; const INITIAL_DARKNESS = 10000; const DAMAGE_MULTIPLIER = 1.2; const GRID_COLS = 32; const GRID_ROWS = 18;
+    let currentDarkness = INITIAL_DARKNESS; let spiralOrder = [];
+    const container = document.getElementById('grid-container'); const scoreVal = document.getElementById('score-val'); const gameOverText = document.getElementById('game-over'); const damageFlash = document.getElementById('damage-flash'); const healFlash = document.getElementById('heal-flash'); const statusText = document.getElementById('connection-status');
+    container.style.setProperty('--cols', GRID_COLS); container.style.setProperty('--rows', GRID_ROWS);
+
+    function connectWS() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = protocol + '//' + window.location.host + '/ws';
+        const ws = new WebSocket(wsUrl);
+        ws.onopen = () => { statusText.innerText = "● ONLINE"; statusText.style.color = "#0f0"; };
+        ws.onmessage = (event) => { const data = JSON.parse(event.data); if (data.type === 'damage') addDarkness(data.amount); else if (data.type === 'heal') removeDarkness(data.amount); };
+        ws.onclose = () => { statusText.innerText = "× OFFLINE"; statusText.style.color = "red"; setTimeout(connectWS, 3000); };
+    }
+
+    function initGrid() {
+        let gridMap = Array.from({ length: GRID_ROWS }, () => Array(GRID_COLS).fill(null));
+        for (let r = 0; r < GRID_ROWS; r++) { for (let c = 0; c < GRID_COLS; c++) { const block = document.createElement('div'); block.classList.add('block'); container.appendChild(block); gridMap[r][c] = block; } }
+        let top = 0, bottom = GRID_ROWS - 1, left = 0, right = GRID_COLS - 1; let dir = 0;
+        while (top <= bottom && left <= right) {
+            if (dir === 0) { for (let i = left; i <= right; i++) spiralOrder.push(gridMap[top][i]); top++; }
+            else if (dir === 1) { for (let i = top; i <= bottom; i++) spiralOrder.push(gridMap[i][right]); right--; }
+            else if (dir === 2) { for (let i = right; i >= left; i--) spiralOrder.push(gridMap[bottom][i]); bottom--; }
+            else if (dir === 3) { for (let i = bottom; i >= top; i--) spiralOrder.push(gridMap[i][left]); left++; }
+            dir = (dir + 1) % 4;
+        }
+        updateVisuals();
+    }
+    function updateVisuals() {
+        scoreVal.innerText = Math.floor(currentDarkness);
+        const blocksToDraw = Math.floor((currentDarkness / MAX_DARKNESS) * spiralOrder.length);
+        spiralOrder.forEach((block, index) => { if (index < blocksToDraw) { if (!block.classList.contains('active')) block.classList.add('active'); } else { if (block.classList.contains('active')) block.classList.remove('active'); } });
+        if (currentDarkness >= MAX_DARKNESS) { gameOverText.style.opacity = 1; gameOverText.innerText = "SYSTEM DOWN"; gameOverText.style.color = "red"; }
+        else if (currentDarkness <= 0) { gameOverText.style.opacity = 1; gameOverText.innerText = "SURVIVED"; gameOverText.style.color = "#0f0"; }
+        else { gameOverText.style.opacity = 0; }
+    }
+    function addDarkness(amount) { if (currentDarkness >= MAX_DARKNESS) return; currentDarkness = Math.min(currentDarkness + (amount * DAMAGE_MULTIPLIER), MAX_DARKNESS); damageFlash.style.backgroundColor = "rgba(255, 0, 0, 0.4)"; setTimeout(() => { damageFlash.style.backgroundColor = "rgba(0,0,0,0)"; }, 100); updateVisuals(); }
+    function removeDarkness(amount) { if (currentDarkness <= 0) return; currentDarkness = Math.max(currentDarkness - amount, 0); healFlash.style.backgroundColor = "rgba(255, 255, 255, 0.5)"; setTimeout(() => { healFlash.style.backgroundColor = "rgba(0,0,0,0)"; }, 150); updateVisuals(); }
+    initGrid(); connectWS();
+</script>
+</body>
+</html>

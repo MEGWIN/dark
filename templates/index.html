@@ -2,56 +2,48 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>MEGWIN OBS Overlay</title>
+<title>MEGWIN OBS Overlay (Debug Mode)</title>
 <style>
-    /* 背景を完全に透明に */
+    /* 背景：デバッグ中は「薄いグレー」にして、透明なブロックが見えるか確認しやすくします */
     body, html { 
         margin: 0; padding: 0; width: 100%; height: 100%; 
         overflow: hidden; 
-        background-color: transparent !important; /* 強制透明 */
+        background-color: #333; /* 本番は transparent に戻します */
+        font-family: 'Arial', sans-serif;
     }
     
     /* グリッドコンテナ */
     #grid-container { 
-        position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; 
+        position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
         display: grid; 
         grid-template-columns: repeat(var(--cols), 1fr); 
         grid-template-rows: repeat(var(--rows), 1fr); 
         pointer-events: none; z-index: 10; 
     }
     
-    /* ブロックのデザイン（黒） */
+    /* ブロックのデザイン */
     .block { 
         width: 100%; height: 100%; 
-        background-color: rgba(0, 0, 0, 0.95); 
-        opacity: 0; transform: scale(0.1); 
-        border-radius: 20%; 
-        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
+        background-color: rgba(0, 0, 0, 0.9); 
+        opacity: 0.2; /* デバッグ用：未発動でもうっすら表示 */
+        transform: scale(0.9); /* デバッグ用：隙間を開ける */
+        border: 1px solid #555; /* デバッグ用：枠線 */
+        transition: all 0.2s;
     }
     .block.active { 
-        opacity: 1; transform: scale(1); border-radius: 0%; 
-        animation: glitch-appear 0.5s ease-out; 
-    }
-    
-    @keyframes glitch-appear { 
-        0% { box-shadow: 0 0 15px #0f0 inset; border: 1px solid #0f0; } 
-        100% { box-shadow: 0 0 0 rgba(0,0,0,0) inset; border: 0px solid transparent; } 
+        opacity: 1; transform: scale(1); border: none;
+        background-color: black;
+        box-shadow: 0 0 10px #0f0; /* 発動したら光る */
     }
 
-    /* エフェクトレイヤー */
-    #damage-flash, #heal-flash { 
-        position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-        pointer-events: none; z-index: 20; transition: background-color 0.1s; 
-    }
-    #damage-flash { background-color: rgba(255, 0, 0, 0); }
-    #heal-flash { background-color: rgba(255, 255, 255, 0); }
-
-    /* ゲームオーバー文字 */
-    #game-over { 
-        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
-        color: red; font-size: 8rem; font-weight: bold; opacity: 0; z-index: 30; 
-        text-shadow: 5px 5px 0 #000; font-family: 'Impact', sans-serif; pointer-events: none; 
-        transition: opacity 0.5s; white-space: nowrap;
+    /* デバッグ情報表示パネル（画面左上） */
+    #debug-console {
+        position: absolute; top: 10px; left: 10px;
+        background: rgba(0,0,0,0.8); color: lime;
+        padding: 10px; font-family: monospace; font-size: 16px;
+        z-index: 9999; pointer-events: none;
+        white-space: pre-wrap; border: 2px solid lime;
+        max-width: 500px;
     }
 
     /* ゲージ（画面下部） */
@@ -59,35 +51,32 @@
         position: absolute; bottom: 50px; left: 50%; transform: translateX(-50%); 
         color: #0f0; background: rgba(0, 0, 0, 0.85); padding: 15px 40px; 
         border: 3px solid #0f0; z-index: 100; font-family: 'Courier New', monospace; 
-        font-weight: bold; font-size: 32px; box-shadow: 0 0 15px #0f0; 
-        border-radius: 10px;
+        font-weight: bold; font-size: 32px; border-radius: 10px;
     }
-    
-    /* 接続状態（小さく表示、透明背景でも見えるように） */
-    #connection-status { 
-        position: absolute; top: 10px; left: 10px; 
-        color: rgba(255, 255, 0, 0.5); font-size: 10px; z-index: 9999; 
-    }
-    
-    /* システムOFF時の暗転 */
-    .system-off #grid-container { opacity: 0.1; }
 </style>
 </head>
 <body>
-    <div id="connection-status">Connecting...</div>
+    <div id="debug-console">読み込み中...</div>
+
     <div id="grid-container"></div>
-    <div id="damage-flash"></div><div id="heal-flash"></div>
-    <div id="game-over">SYSTEM DOWN</div>
-    <div id="status-bar">DANGER: <span id="score-val">10000</span></div>
+    <div id="status-bar">DANGER: <span id="score-val">---</span></div>
 
     <script>
+        const debugConsole = document.getElementById('debug-console');
+        function log(msg) {
+            const time = new Date().toLocaleTimeString();
+            debugConsole.innerText = `[${time}] ${msg}\n` + debugConsole.innerText;
+        }
+        window.onerror = function(message, source, lineno, colno, error) {
+            log(`❌ ERROR: ${message}`);
+        };
+
+        log("🚀 システム起動開始...");
+
         // 設定
         const MAX_DARKNESS = 20000; 
         const INITIAL_DARKNESS = 10000; 
         const DAMAGE_MULTIPLIER = 1.2; 
-        
-        // ★OBSの解像度に合わせて自動調整されますが、
-        // 縦横のブロック数はここでお好みに調整できます
         const GRID_COLS = 32; 
         const GRID_ROWS = 18; 
 
@@ -97,39 +86,62 @@
 
         const container = document.getElementById('grid-container'); 
         const scoreVal = document.getElementById('score-val'); 
-        const gameOverText = document.getElementById('game-over'); 
-        const damageFlash = document.getElementById('damage-flash'); 
-        const healFlash = document.getElementById('heal-flash'); 
-        const statusText = document.getElementById('connection-status');
 
+        // CSS変数セット
         container.style.setProperty('--cols', GRID_COLS); 
         container.style.setProperty('--rows', GRID_ROWS);
 
         // WebSocket接続
         function connectWS() {
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const ws = new WebSocket(protocol + '//' + window.location.host + '/ws');
-            ws.onopen = () => { statusText.innerText = "●"; statusText.style.color = "#0f0"; };
-            ws.onmessage = (event) => { 
-                const data = JSON.parse(event.data); 
-                if (data.type === 'damage') addDarkness(data.amount); 
-                else if (data.type === 'heal') removeDarkness(data.amount);
-                else if (data.type === 'status_change') updateSystemState(data.is_active);
-            };
-            ws.onclose = () => { statusText.innerText = "×"; statusText.style.color = "red"; setTimeout(connectWS, 3000); };
-        }
+            try {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const host = window.location.host;
+                const wsUrl = protocol + '//' + host + '/ws';
+                
+                log(`📡 接続試行: ${wsUrl}`);
+                const ws = new WebSocket(wsUrl);
 
-        function updateSystemState(active) {
-            isActive = active;
-            if (isActive) document.body.classList.remove("system-off");
-            else document.body.classList.add("system-off");
+                ws.onopen = () => { log("✅ サーバー接続成功！(ONLINE)"); };
+                ws.onmessage = (event) => { 
+                    log(`📩 受信: ${event.data}`); // 受信データを見る
+                    try {
+                        const data = JSON.parse(event.data); 
+                        if (data.type === 'damage') addDarkness(data.amount); 
+                        else if (data.type === 'heal') removeDarkness(data.amount);
+                        else if (data.type === 'status_change') {
+                            isActive = data.is_active;
+                            log(`ℹ️ システム状態変更: ${isActive}`);
+                        }
+                    } catch(e) {
+                        log(`⚠️ データ解析エラー: ${e}`);
+                    }
+                };
+                ws.onclose = (e) => { 
+                    log(`❌ 切断されました。3秒後に再接続... (${e.code})`); 
+                    setTimeout(connectWS, 3000); 
+                };
+                ws.onerror = (e) => { log("⚠️ WebSocketエラー発生"); };
+
+            } catch (e) {
+                log(`❌ 接続処理エラー: ${e}`);
+            }
         }
 
         function initGrid() {
+            log(`🧩 グリッド生成: ${GRID_COLS}x${GRID_ROWS}`);
             let gridMap = Array.from({ length: GRID_ROWS }, () => Array(GRID_COLS).fill(null));
-            for (let r = 0; r < GRID_ROWS; r++) { for (let c = 0; c < GRID_COLS; c++) { const block = document.createElement('div'); block.classList.add('block'); container.appendChild(block); gridMap[r][c] = block; } }
             
-            // 渦巻き順生成
+            // ブロック配置
+            for (let r = 0; r < GRID_ROWS; r++) { 
+                for (let c = 0; c < GRID_COLS; c++) { 
+                    const block = document.createElement('div'); 
+                    block.classList.add('block'); 
+                    container.appendChild(block); 
+                    gridMap[r][c] = block; 
+                } 
+            }
+            
+            // 渦巻き計算
             let top = 0, bottom = GRID_ROWS - 1, left = 0, right = GRID_COLS - 1; let dir = 0;
             while (top <= bottom && left <= right) {
                 if (dir === 0) { for (let i = left; i <= right; i++) spiralOrder.push(gridMap[top][i]); top++; }
@@ -138,46 +150,38 @@
                 else if (dir === 3) { for (let i = bottom; i >= top; i--) spiralOrder.push(gridMap[i][left]); left++; }
                 dir = (dir + 1) % 4;
             }
+            log(`🧩 ブロック生成完了: ${spiralOrder.length}個`);
             updateVisuals();
         }
 
         function updateVisuals() {
             scoreVal.innerText = Math.floor(currentDarkness);
             const blocksToDraw = Math.floor((currentDarkness / MAX_DARKNESS) * spiralOrder.length);
-            spiralOrder.forEach((block, index) => { 
-                if (index < blocksToDraw) { if (!block.classList.contains('active')) block.classList.add('active'); } 
-                else { if (block.classList.contains('active')) block.classList.remove('active'); } 
-            });
             
-            if (currentDarkness >= MAX_DARKNESS) { 
-                gameOverText.style.opacity = 1; gameOverText.innerText = "SYSTEM DOWN"; gameOverText.style.color = "red"; 
-            } else if (currentDarkness <= 0) { 
-                gameOverText.style.opacity = 1; gameOverText.innerText = "SURVIVED"; gameOverText.style.color = "#0f0"; 
-            } else { 
-                gameOverText.style.opacity = 0; 
+            // UI更新
+            for(let i=0; i<spiralOrder.length; i++) {
+                if (i < blocksToDraw) spiralOrder[i].classList.add('active');
+                else spiralOrder[i].classList.remove('active');
             }
         }
 
         function addDarkness(amount) { 
             if (currentDarkness >= MAX_DARKNESS) return; 
             currentDarkness = Math.min(currentDarkness + (amount * DAMAGE_MULTIPLIER), MAX_DARKNESS); 
-            damageFlash.style.backgroundColor = "rgba(255, 0, 0, 0.4)"; 
-            setTimeout(() => { damageFlash.style.backgroundColor = "rgba(0,0,0,0)"; }, 100); 
             updateVisuals(); 
         }
 
         function removeDarkness(amount) { 
             if (currentDarkness <= 0) return; 
             currentDarkness = Math.max(currentDarkness - amount, 0); 
-            healFlash.style.backgroundColor = "rgba(255, 255, 255, 0.5)"; 
-            setTimeout(() => { healFlash.style.backgroundColor = "rgba(0,0,0,0)"; }, 150); 
             updateVisuals(); 
         }
         
-        initGrid(); 
-        connectWS();
-        // 初期状態取得
-        fetch('/api/status').then(r => r.json()).then(d => updateSystemState(d.is_active));
+        // 実行
+        window.onload = function() {
+            initGrid(); 
+            connectWS();
+        };
     </script>
 </body>
 </html>

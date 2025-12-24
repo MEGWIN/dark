@@ -10,7 +10,7 @@ from typing import List
 from pydantic import BaseModel
 
 # --- 設定 ---
-# Railwayの金庫からキーを取り出す（なければエラー回避のため空文字）
+# Railwayの金庫からキーを取り出す
 API_KEY = os.environ.get("YOUTUBE_API_KEY", "")
 UPDATE_INTERVAL = 5 # 監視間隔（秒）
 
@@ -27,7 +27,7 @@ templates = Jinja2Templates(directory="templates")
 server_state = {
     "is_active": True,       # システムON/OFF
     "video_id": "",          # YouTubeビデオID
-    "chat_id": None,         # チャットID（自動取得）
+    "chat_id": None,         # チャットID
     "next_page_token": None  # 次の読み込み位置
 }
 
@@ -65,7 +65,6 @@ async def monitor_youtube():
             try:
                 url = "https://www.googleapis.com/youtube/v3/videos"
                 params = {"part": "liveStreamingDetails", "id": server_state["video_id"], "key": API_KEY}
-                # ブロック回避のためスレッドで実行
                 resp = await asyncio.to_thread(requests.get, url, params=params)
                 data = resp.json()
                 items = data.get("items", [])
@@ -73,8 +72,8 @@ async def monitor_youtube():
                     server_state["chat_id"] = items[0]["liveStreamingDetails"].get("activeLiveChatId")
                     print(f"✅ チャット特定成功: {server_state['chat_id']}")
                 else:
-                    print("⚠️ チャットが見つかりません (配信してない？)")
-                    await asyncio.sleep(10) # 失敗したら少し長く待つ
+                    print("⚠️ チャットが見つかりません")
+                    await asyncio.sleep(10)
                     continue
             except Exception as e:
                 print(f"エラー: {e}")
@@ -119,7 +118,6 @@ async def monitor_youtube():
                 server_state["next_page_token"] = data.get("nextPageToken")
             
             else:
-                # データが取れなかった場合（配信終了など）、チャットIDをリセットして再検索へ
                 if "error" in data:
                     print("⚠️ APIエラー、再接続します")
                     server_state["chat_id"] = None
@@ -136,9 +134,7 @@ async def monitor_youtube():
 async def startup_event():
     asyncio.create_task(monitor_youtube())
 
-
 # --- 以下、Webサーバー機能 ---
-
 class VideoIdReq(BaseModel):
     video_id: str
 
@@ -159,7 +155,6 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
-# 手動操作用API
 @app.post("/api/action")
 async def action(request: Request):
     if not server_state["is_active"]: return {"status": "ignored"}
@@ -180,9 +175,8 @@ async def toggle_status():
 @app.post("/api/config_video")
 async def set_video_id(req: VideoIdReq):
     server_state["video_id"] = req.video_id
-    server_state["chat_id"] = None       # IDが変わったらチャットIDもリセット
+    server_state["chat_id"] = None
     server_state["next_page_token"] = None
-    print(f"Video ID Updated: {req.video_id}")
     return server_state
 
 if __name__ == "__main__":

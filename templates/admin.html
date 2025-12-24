@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MEGWIN Game Admin</title>
+    <style>
+        body { font-family: sans-serif; background: #222; color: #fff; text-align: center; padding: 20px; }
+        h1 { margin-bottom: 20px; color: #0f0; text-shadow: 0 0 10px #0f0; }
+        .panel { background: #333; padding: 20px; border-radius: 10px; margin-bottom: 20px; max-width: 600px; margin-left: auto; margin-right: auto; }
+        
+        input[type="text"] { width: 70%; padding: 10px; font-size: 16px; border-radius: 5px; border: none; }
+        button { padding: 10px 20px; font-size: 16px; border-radius: 5px; border: none; cursor: pointer; font-weight: bold; transition: 0.2s; margin: 5px; }
+        button:active { transform: scale(0.95); }
+
+        .btn-save { background: #007bff; color: white; }
+        .btn-toggle { width: 100%; font-size: 24px; padding: 20px; margin-top: 10px; }
+        .btn-on { background: #dc3545; color: white; box-shadow: 0 0 15px red; } /* STOPボタン */
+        .btn-off { background: #28a745; color: white; box-shadow: 0 0 15px green; } /* STARTボタン */
+
+        .btn-damage { background: #ff9999; color: #500; }
+        .btn-heal { background: #99ff99; color: #050; }
+        
+        #current-id { font-weight: bold; color: #ffff00; font-size: 1.2em; }
+    </style>
+</head>
+<body>
+
+    <h1>🎮 MEGWIN LIVE CONTROL</h1>
+
+    <div class="panel">
+        <h2>メインスイッチ (API節約)</h2>
+        <div id="status-display">読み込み中...</div>
+        <button id="toggle-btn" class="btn-toggle" onclick="toggleSystem()">---</button>
+        <p><small>STOP中は手元のPythonが待機モードになり、通信量を節約します。</small></p>
+    </div>
+
+    <div class="panel">
+        <h2>YouTube Video ID</h2>
+        <p>現在のID: <span id="current-id">---</span></p>
+        <input type="text" id="video-id-input" placeholder="YouTubeのビデオIDを入力 (例: v7X...)" />
+        <button class="btn-save" onclick="saveVideoID()">設定保存</button>
+        <p><small>保存すると、手元のPythonスクリプトが自動でこのIDの監視を始めます。</small></p>
+    </div>
+
+    <div class="panel">
+        <h2>動作テスト</h2>
+        <button class="btn-damage" onclick="sendAction('damage', 500)">👿 アンチ (+500)</button>
+        <button class="btn-damage" onclick="sendAction('damage', 2000)">👿 弾幕 (+2000)</button>
+        <br>
+        <button class="btn-heal" onclick="sendAction('heal', 500)">😇 応援 (-500)</button>
+        <button class="btn-heal" onclick="sendAction('heal', 10000)">💰 赤スパ (-10000)</button>
+    </div>
+
+    <script>
+        const API_STATUS = '/api/status';
+        const API_TOGGLE = '/api/toggle';
+        const API_CONFIG = '/api/config_video';
+        const API_ACTION = '/api/action';
+
+        const statusDisplay = document.getElementById('status-display');
+        const toggleBtn = document.getElementById('toggle-btn');
+        const currentIdSpan = document.getElementById('current-id');
+        const videoIdInput = document.getElementById('video-id-input');
+
+        // 状態の更新
+        function updateUI(state) {
+            currentIdSpan.innerText = state.video_id || "(未設定)";
+            
+            if (state.is_active) {
+                statusDisplay.innerText = "現在の状態: ● 稼働中 (ONLINE)";
+                statusDisplay.style.color = "#0f0";
+                toggleBtn.innerText = "🛑 システムを停止する";
+                toggleBtn.className = "btn-toggle btn-on";
+            } else {
+                statusDisplay.innerText = "現在の状態: ⏸ 停止中 (PAUSED)";
+                statusDisplay.style.color = "yellow";
+                toggleBtn.innerText = "▶ システムを開始する";
+                toggleBtn.className = "btn-toggle btn-off";
+            }
+        }
+
+        // 初期ロード
+        fetch(API_STATUS).then(r => r.json()).then(updateUI);
+
+        // スイッチ切替
+        function toggleSystem() {
+            fetch(API_TOGGLE, { method: 'POST' }).then(r => r.json()).then(updateUI);
+        }
+
+        // ビデオID保存
+        function saveVideoID() {
+            const vid = videoIdInput.value.trim();
+            if (!vid) return alert("IDを入力してください");
+            
+            fetch(API_CONFIG, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ video_id: vid })
+            }).then(r => r.json()).then(data => {
+                alert("保存しました！Python側が自動で認識します。");
+                updateUI(data);
+                videoIdInput.value = "";
+            });
+        }
+
+        // アクション送信
+        function sendAction(type, amount) {
+            fetch(API_ACTION, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: type, amount: amount })
+            });
+        }
+    </script>
+</body>
+</html>

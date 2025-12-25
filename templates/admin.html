@@ -38,9 +38,9 @@
     <div class="panel">
         <h2>YouTube Video ID</h2>
         <p>現在のID: <span id="current-id">---</span></p>
-        <input type="text" id="video-id-input" placeholder="YouTubeのビデオIDを入力 (例: v7X...)" />
+        <input type="text" id="video-id-input" placeholder="URLまたはIDを入力 (例: https://youtube.com/live/...)" />
         <button class="btn-save" onclick="saveVideoID()">設定保存</button>
-        <p><small>保存すると、手元のPythonスクリプトが自動でこのIDの監視を始めます。</small></p>
+        <p><small>URLをそのまま貼り付けても自動でIDだけ抽出します！</small></p>
     </div>
 
     <div class="panel">
@@ -88,17 +88,59 @@
             fetch(API_TOGGLE, { method: 'POST' }).then(r => r.json()).then(updateUI);
         }
 
-        // ビデオID保存
+        // ★ここが新機能！URLからIDを抽出する関数
+        function extractVideoId(input) {
+            input = input.trim();
+            // URLじゃない(ただのID)ならそのまま返す
+            if (!input.includes("http") && !input.includes("youtube") && !input.includes("youtu.be")) {
+                return input;
+            }
+
+            let videoId = "";
+            try {
+                // パターン1: https://youtube.com/live/xxxx?feature...
+                if (input.includes("/live/")) {
+                    videoId = input.split("/live/")[1];
+                }
+                // パターン2: https://youtu.be/xxxx
+                else if (input.includes("youtu.be/")) {
+                    videoId = input.split("youtu.be/")[1];
+                }
+                // パターン3: https://www.youtube.com/watch?v=xxxx
+                else if (input.includes("v=")) {
+                    videoId = input.split("v=")[1];
+                }
+                
+                // 後ろについた ?feature=share などをカットする
+                if (videoId) {
+                    const ampersandPos = videoId.indexOf('&');
+                    const questionPos = videoId.indexOf('?');
+                    if (ampersandPos !== -1) videoId = videoId.substring(0, ampersandPos);
+                    if (questionPos !== -1) videoId = videoId.substring(0, questionPos);
+                    return videoId;
+                }
+            } catch (e) {
+                console.error("ID抽出エラー", e);
+            }
+            return input; // 万が一失敗したらそのまま返す
+        }
+
+        // ビデオID保存（抽出機能付き）
         function saveVideoID() {
-            const vid = videoIdInput.value.trim();
+            const rawInput = videoIdInput.value;
+            const vid = extractVideoId(rawInput); // 自動抽出！
+
             if (!vid) return alert("IDを入力してください");
             
+            // 確認用アラート（うざければ消してOK）
+            // alert("設定するID: " + vid);
+
             fetch(API_CONFIG, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ video_id: vid })
             }).then(r => r.json()).then(data => {
-                alert("保存しました！Python側が自動で認識します。");
+                alert("保存しました！\n設定ID: " + vid);
                 updateUI(data);
                 videoIdInput.value = "";
             });

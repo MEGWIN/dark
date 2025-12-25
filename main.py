@@ -4,7 +4,7 @@ import asyncio
 import requests
 import csv
 import datetime
-import re # ★これが超重要！金額計算に使います
+import re 
 from fastapi import FastAPI, WebSocket, Request, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.templating import Jinja2Templates
@@ -32,7 +32,6 @@ server_state = {
     "next_page_token": None
 }
 
-# --- ログ機能 ---
 def init_log():
     if not os.path.exists(LOG_FILE):
         with open(LOG_FILE, mode='w', encoding='utf-8-sig', newline='') as f:
@@ -50,17 +49,15 @@ def save_log(user, action_type, amount, money="", message=""):
 
 init_log()
 
-# ★金額計算ロジック（エラー対策済み）
 def parse_money(money_str):
     try:
-        # 数字以外を全部消す（例: "¥320" -> "320"）
         if not money_str: return 100
         nums = re.sub(r'[^\d]', '', str(money_str))
         if not nums: return 100 
         return int(nums)
     except Exception as e:
         print(f"⚠️ 金額計算エラー: {e}")
-        return 100 # エラー時はとりあえず100円扱い
+        return 100
 
 class ConnectionManager:
     def __init__(self):
@@ -121,18 +118,18 @@ async def monitor_youtube():
                         icon_url = item["authorDetails"]["profileImageUrl"]
                         snippet_type = item["snippet"]["type"]
 
-                        # ★スパチャ処理（ここを強化しました）
                         if snippet_type == "superChatEvent":
                             details = item["snippet"]["superChatDetails"]
                             amt_str = details["amountDisplayString"]
                             comment_text = details.get("userComment", "")
                             print(f"💰 SP検知: {author} {amt_str}")
                             
-                            # 金額計算
                             money_val = parse_money(amt_str)
                             
-                            # 効果量：金額 × 50 (OBS側で0.2倍されるので、実質10倍)
-                            effect_amount = money_val * 50
+                            # ★ここを変更！
+                            # 50倍(実質10倍)だと強すぎたので、15倍(実質3倍)に弱体化
+                            # フロントで0.2倍されるので、結果的に 金額×3 の回復量になります。
+                            effect_amount = money_val * 15
 
                             payload = {
                                 "type": "heal", 
@@ -144,10 +141,8 @@ async def monitor_youtube():
                             
                             save_log(author, "SuperChat", payload["amount"], amt_str, comment_text)
                             await manager.broadcast(json.dumps(payload))
-                            print(f"🚀 スパチャ反映完了: {effect_amount}ポイント") # 確認用ログ
                         
                         else:
-                            # 通常コメント
                             damage_words = ["闇", "ダーク", "終わらせろ", "終了", "つまらん", "帰れ", "オワコン"]
                             heal_words = ["光", "ライト", "希望", "頑張れ", "応援", "まだ"]
 
@@ -166,7 +161,7 @@ async def monitor_youtube():
                                 }))
                     
                     except Exception as e:
-                        print(f"⚠️ 処理エラー(1件スキップ): {e}")
+                        print(f"⚠️ 処理エラー: {e}")
                         continue
 
                 server_state["next_page_token"] = data.get("nextPageToken")
@@ -221,6 +216,7 @@ async def action(request: Request):
     if not money_val and data["type"] == "heal" and data["amount"] >= 1000:
          money_val = "¥10,000"
          data["money"] = money_val
+         # テストボタンは固定値で動きます
     
     save_log("MEGWIN(TEST)", data["type"], data["amount"], money_val, "TEST ACTION")
     await manager.broadcast(json.dumps(data))

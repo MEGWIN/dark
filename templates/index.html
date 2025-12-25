@@ -2,13 +2,14 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>MEGWIN OBS Overlay (Final)</title>
+<title>MEGWIN OBS Overlay</title>
 <style>
     /* 背景は完全に透明 */
     body, html { 
         margin: 0; padding: 0; width: 100%; height: 100%; 
         overflow: hidden; 
         background-color: transparent !important;
+        font-family: 'Impact', 'Arial Black', sans-serif; /* 強いフォント */
     }
     
     /* グリッドコンテナ */
@@ -23,15 +24,14 @@
     /* ブロックのデザイン（完全な黒） */
     .block { 
         width: 100%; height: 100%; 
-        background-color: black; /* 真っ黒 */
-        opacity: 0; /* 出現前は完全に見えない */
+        background-color: black; 
+        opacity: 0; 
         transform: scale(0.1); 
         transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
     }
     .block.active { 
-        opacity: 1; /* 出現時は不透明度100% */
+        opacity: 1; 
         transform: scale(1); 
-        /* 出現時だけ一瞬緑に光る演出（サイバー感） */
         animation: glitch-appear 0.3s ease-out; 
     }
     
@@ -40,22 +40,40 @@
         100% { box-shadow: 0 0 0 rgba(0,0,0,0) inset; border: none; } 
     }
 
-    /* ゲージ（画面下部） */
+    /* ゲームオーバー文字（通常は隠れている） */
+    #game-over { 
+        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+        color: red; font-size: 6rem; font-weight: bold; opacity: 0; z-index: 30; 
+        text-shadow: 5px 5px 0 #000, -2px -2px 0 #000; 
+        pointer-events: none; transition: opacity 0.5s; 
+        white-space: nowrap; letter-spacing: 5px;
+    }
+
+    /* 下部の説明バー（数字の代わり） */
     #status-bar { 
         position: absolute; bottom: 50px; left: 50%; transform: translateX(-50%); 
-        color: #0f0; background: rgba(0, 0, 0, 0.85); padding: 15px 40px; 
-        border: 3px solid #0f0; z-index: 100; font-family: 'Courier New', monospace; 
-        font-weight: bold; font-size: 32px; border-radius: 10px;
-        box-shadow: 0 0 15px #0f0;
+        color: #fff; background: rgba(0, 0, 0, 0.8); padding: 10px 40px; 
+        border-top: 4px solid red; border-bottom: 4px solid #0f0; 
+        z-index: 100; font-size: 28px; border-radius: 5px;
+        box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        text-align: center;
     }
-    
+    .text-red { color: #ff4444; }
+    .text-green { color: #44ff44; }
+
     /* システムOFF時の暗転 */
     .system-off #grid-container { opacity: 0.1; }
 </style>
 </head>
 <body>
     <div id="grid-container"></div>
-    <div id="status-bar">DANGER: <span id="score-val">---</span></div>
+    
+    <div id="game-over">完全闇で配信終了</div>
+
+    <div id="status-bar">
+        コメント：<span class="text-red">闇</span>　
+        スパチャ：<span class="text-green">光</span>
+    </div>
 
     <script>
         // 設定
@@ -70,7 +88,7 @@
         let isActive = true;
 
         const container = document.getElementById('grid-container'); 
-        const scoreVal = document.getElementById('score-val'); 
+        const gameOverText = document.getElementById('game-over');
 
         container.style.setProperty('--cols', GRID_COLS); 
         container.style.setProperty('--rows', GRID_ROWS);
@@ -81,9 +99,22 @@
             
             ws.onmessage = (event) => { 
                 const data = JSON.parse(event.data); 
-                if (data.type === 'damage') addDarkness(data.amount); 
-                else if (data.type === 'heal') removeDarkness(data.amount);
-                else if (data.type === 'status_change') updateSystemState(data.is_active);
+                
+                if (data.type === 'damage') {
+                    addDarkness(data.amount); 
+                }
+                else if (data.type === 'heal') {
+                    removeDarkness(data.amount);
+                }
+                else if (data.type === 'status_change') {
+                    // ★ここが新機能！
+                    // システムをSTART(ON)にしたら、自動で初期値(半分)にリセット
+                    if (data.is_active && !isActive) {
+                        currentDarkness = INITIAL_DARKNESS;
+                        updateVisuals();
+                    }
+                    updateSystemState(data.is_active);
+                }
             };
             ws.onclose = () => { setTimeout(connectWS, 3000); };
         }
@@ -110,11 +141,18 @@
         }
 
         function updateVisuals() {
-            scoreVal.innerText = Math.floor(currentDarkness);
+            // ブロックの描画計算
             const blocksToDraw = Math.floor((currentDarkness / MAX_DARKNESS) * spiralOrder.length);
             for(let i=0; i<spiralOrder.length; i++) {
                 if (i < blocksToDraw) spiralOrder[i].classList.add('active');
                 else spiralOrder[i].classList.remove('active');
+            }
+
+            // ゲームオーバー判定
+            if (currentDarkness >= MAX_DARKNESS) {
+                gameOverText.style.opacity = 1; // 表示
+            } else {
+                gameOverText.style.opacity = 0; // 非表示
             }
         }
 

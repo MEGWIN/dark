@@ -9,7 +9,7 @@
         margin: 0; padding: 0; width: 100%; height: 100%; 
         overflow: hidden; 
         background-color: transparent !important;
-        font-family: 'Impact', 'Arial Black', sans-serif; /* 強いフォント */
+        font-family: 'Impact', 'Arial Black', sans-serif;
     }
     
     /* グリッドコンテナ */
@@ -30,66 +30,59 @@
         transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
     }
     .block.active { 
-        opacity: 1; 
-        transform: scale(1); 
+        opacity: 1; transform: scale(1); 
         animation: glitch-appear 0.3s ease-out; 
     }
-    
     @keyframes glitch-appear { 
         0% { box-shadow: 0 0 15px #0f0 inset; border: 1px solid #0f0; } 
         100% { box-shadow: 0 0 0 rgba(0,0,0,0) inset; border: none; } 
     }
 
-    /* ★変更点：ゲームオーバー文字（怖く、赤く） */
+    /* ゲームオーバー文字 */
     #game-over { 
         position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
-        color: #ff0000; /* 真っ赤 */
-        font-size: 10rem; /* 超巨大化 */
-        font-weight: bold; 
-        opacity: 0; /* 通常は隠す */
-        z-index: 30; 
-        /* 禍々しい赤と黒のシャドウ */
-        text-shadow: 
-            5px 5px 0 #000, -5px -5px 0 #000, 5px -5px 0 #000, -5px 5px 0 #000, /* 黒い縁取り */
-            0 0 30px #ff0000, 0 0 60px #ff0000; /* 赤い発光 */
-        pointer-events: none; 
-        transition: opacity 0.3s ease-in; /* パッと出る */
-        white-space: nowrap; 
-        letter-spacing: 15px; /* 文字間隔を広げて圧迫感を出す */
-        font-family: 'Impact', sans-serif; /* インパクトのあるフォント */
+        color: #ff0000; font-size: 10rem; font-weight: bold; opacity: 0; z-index: 30; 
+        text-shadow: 5px 5px 0 #000, -5px -5px 0 #000, 5px -5px 0 #000, -5px 5px 0 #000, 0 0 30px #ff0000; 
+        pointer-events: none; transition: opacity 0.3s ease-in; 
+        white-space: nowrap; letter-spacing: 15px; font-family: 'Impact', sans-serif;
     }
 
     /* 下部の説明バー */
     #status-bar { 
         position: absolute; bottom: 50px; left: 50%; transform: translateX(-50%); 
-        color: #fff; background: rgba(0, 0, 0, 0.8); padding: 10px 40px; 
-        border-top: 4px solid red; border-bottom: 4px solid #0f0; 
-        z-index: 100; font-size: 28px; border-radius: 5px;
-        box-shadow: 0 0 20px rgba(0,0,0,0.8);
-        text-align: center;
+        color: #fff; background: rgba(0, 0, 0, 0.8); padding: 15px 50px; 
+        border: 4px solid #fff; z-index: 100; font-size: 32px; border-radius: 10px;
+        box-shadow: 0 0 20px rgba(0,0,0,0.8); text-align: center; white-space: nowrap;
     }
-    .text-red { color: #ff4444; }
-    .text-green { color: #44ff44; }
+    
+    /* ★新機能：アクションユーザー表示 */
+    #user-action-display {
+        position: absolute; top: 15%; left: 50%; transform: translateX(-50%);
+        font-size: 4rem; font-weight: bold; color: yellow;
+        text-shadow: 2px 2px 0 #000, -2px -2px 0 #000;
+        opacity: 0; transition: opacity 0.5s; z-index: 50;
+        background: rgba(0,0,0,0.5); padding: 10px 30px; border-radius: 10px;
+    }
 
-    /* システムOFF時の暗転 */
     .system-off #grid-container { opacity: 0.1; }
 </style>
 </head>
 <body>
     <div id="grid-container"></div>
-    
     <div id="game-over">GAME OVER</div>
 
-    <div id="status-bar">
-        コメント：<span class="text-red">闇</span>　
-        スパチャ：<span class="text-green">光</span>
-    </div>
+    <div id="user-action-display"></div>
+
+    <div id="status-bar">闇VS光　コメントorスパチャ</div>
 
     <script>
-        // 設定
         const MAX_DARKNESS = 20000; 
         const INITIAL_DARKNESS = 10000; 
-        const DAMAGE_MULTIPLIER = 1.2; 
+        
+        // ★ここを変更：耐久力10倍（0.12倍にする）
+        // 1回500ダメ * 0.12 = 60ダメ。残り10000HP / 60 = 約166回耐久
+        const DAMAGE_MULTIPLIER = 0.12; 
+
         const GRID_COLS = 32; 
         const GRID_ROWS = 18; 
 
@@ -99,6 +92,7 @@
 
         const container = document.getElementById('grid-container'); 
         const gameOverText = document.getElementById('game-over');
+        const userActionDisplay = document.getElementById('user-action-display');
 
         container.style.setProperty('--cols', GRID_COLS); 
         container.style.setProperty('--rows', GRID_ROWS);
@@ -111,13 +105,14 @@
                 const data = JSON.parse(event.data); 
                 
                 if (data.type === 'damage') {
-                    addDarkness(data.amount); 
+                    addDarkness(data.amount);
+                    showUserAction(data.user, "闇", "red");
                 }
                 else if (data.type === 'heal') {
                     removeDarkness(data.amount);
+                    showUserAction(data.user, "光", "#0f0");
                 }
                 else if (data.type === 'status_change') {
-                    // システムをSTART(ON)にしたら、自動で初期値(半分)にリセット
                     if (data.is_active && !isActive) {
                         currentDarkness = INITIAL_DARKNESS;
                         updateVisuals();
@@ -126,6 +121,20 @@
                 }
             };
             ws.onclose = () => { setTimeout(connectWS, 3000); };
+        }
+
+        // ★ユーザー名を表示する演出
+        let hideTimeout;
+        function showUserAction(name, type, color) {
+            if (!name) return;
+            userActionDisplay.innerHTML = `<span style="color:${color}">${name}</span> が ${type} を送った！`;
+            userActionDisplay.style.opacity = 1;
+            
+            // 3秒後に消す
+            clearTimeout(hideTimeout);
+            hideTimeout = setTimeout(() => {
+                userActionDisplay.style.opacity = 0;
+            }, 3000);
         }
 
         function updateSystemState(active) {
@@ -150,19 +159,13 @@
         }
 
         function updateVisuals() {
-            // ブロックの描画計算
             const blocksToDraw = Math.floor((currentDarkness / MAX_DARKNESS) * spiralOrder.length);
             for(let i=0; i<spiralOrder.length; i++) {
                 if (i < blocksToDraw) spiralOrder[i].classList.add('active');
                 else spiralOrder[i].classList.remove('active');
             }
-
-            // ゲームオーバー判定（完全闇になったら表示）
-            if (currentDarkness >= MAX_DARKNESS) {
-                gameOverText.style.opacity = 1; // 表示
-            } else {
-                gameOverText.style.opacity = 0; // 非表示
-            }
+            if (currentDarkness >= MAX_DARKNESS) gameOverText.style.opacity = 1;
+            else gameOverText.style.opacity = 0;
         }
 
         function addDarkness(amount) { 

@@ -2,14 +2,13 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>MEGWIN OBS Overlay (Debug Mode)</title>
+<title>MEGWIN OBS Overlay (Final)</title>
 <style>
-    /* 背景：デバッグ中は「薄いグレー」にして、透明なブロックが見えるか確認しやすくします */
+    /* 背景は完全に透明 */
     body, html { 
         margin: 0; padding: 0; width: 100%; height: 100%; 
         overflow: hidden; 
-        background-color: #333; /* 本番は transparent に戻します */
-        font-family: 'Arial', sans-serif;
+        background-color: transparent !important;
     }
     
     /* グリッドコンテナ */
@@ -21,29 +20,24 @@
         pointer-events: none; z-index: 10; 
     }
     
-    /* ブロックのデザイン */
+    /* ブロックのデザイン（完全な黒） */
     .block { 
         width: 100%; height: 100%; 
-        background-color: rgba(0, 0, 0, 0.9); 
-        opacity: 0.2; /* デバッグ用：未発動でもうっすら表示 */
-        transform: scale(0.9); /* デバッグ用：隙間を開ける */
-        border: 1px solid #555; /* デバッグ用：枠線 */
-        transition: all 0.2s;
+        background-color: black; /* 真っ黒 */
+        opacity: 0; /* 出現前は完全に見えない */
+        transform: scale(0.1); 
+        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
     }
     .block.active { 
-        opacity: 1; transform: scale(1); border: none;
-        background-color: black;
-        box-shadow: 0 0 10px #0f0; /* 発動したら光る */
+        opacity: 1; /* 出現時は不透明度100% */
+        transform: scale(1); 
+        /* 出現時だけ一瞬緑に光る演出（サイバー感） */
+        animation: glitch-appear 0.3s ease-out; 
     }
-
-    /* デバッグ情報表示パネル（画面左上） */
-    #debug-console {
-        position: absolute; top: 10px; left: 10px;
-        background: rgba(0,0,0,0.8); color: lime;
-        padding: 10px; font-family: monospace; font-size: 16px;
-        z-index: 9999; pointer-events: none;
-        white-space: pre-wrap; border: 2px solid lime;
-        max-width: 500px;
+    
+    @keyframes glitch-appear { 
+        0% { box-shadow: 0 0 15px #0f0 inset; border: 1px solid #0f0; } 
+        100% { box-shadow: 0 0 0 rgba(0,0,0,0) inset; border: none; } 
     }
 
     /* ゲージ（画面下部） */
@@ -52,27 +46,18 @@
         color: #0f0; background: rgba(0, 0, 0, 0.85); padding: 15px 40px; 
         border: 3px solid #0f0; z-index: 100; font-family: 'Courier New', monospace; 
         font-weight: bold; font-size: 32px; border-radius: 10px;
+        box-shadow: 0 0 15px #0f0;
     }
+    
+    /* システムOFF時の暗転 */
+    .system-off #grid-container { opacity: 0.1; }
 </style>
 </head>
 <body>
-    <div id="debug-console">読み込み中...</div>
-
     <div id="grid-container"></div>
     <div id="status-bar">DANGER: <span id="score-val">---</span></div>
 
     <script>
-        const debugConsole = document.getElementById('debug-console');
-        function log(msg) {
-            const time = new Date().toLocaleTimeString();
-            debugConsole.innerText = `[${time}] ${msg}\n` + debugConsole.innerText;
-        }
-        window.onerror = function(message, source, lineno, colno, error) {
-            log(`❌ ERROR: ${message}`);
-        };
-
-        log("🚀 システム起動開始...");
-
         // 設定
         const MAX_DARKNESS = 20000; 
         const INITIAL_DARKNESS = 10000; 
@@ -87,61 +72,32 @@
         const container = document.getElementById('grid-container'); 
         const scoreVal = document.getElementById('score-val'); 
 
-        // CSS変数セット
         container.style.setProperty('--cols', GRID_COLS); 
         container.style.setProperty('--rows', GRID_ROWS);
 
-        // WebSocket接続
         function connectWS() {
-            try {
-                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                const host = window.location.host;
-                const wsUrl = protocol + '//' + host + '/ws';
-                
-                log(`📡 接続試行: ${wsUrl}`);
-                const ws = new WebSocket(wsUrl);
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const ws = new WebSocket(protocol + '//' + window.location.host + '/ws');
+            
+            ws.onmessage = (event) => { 
+                const data = JSON.parse(event.data); 
+                if (data.type === 'damage') addDarkness(data.amount); 
+                else if (data.type === 'heal') removeDarkness(data.amount);
+                else if (data.type === 'status_change') updateSystemState(data.is_active);
+            };
+            ws.onclose = () => { setTimeout(connectWS, 3000); };
+        }
 
-                ws.onopen = () => { log("✅ サーバー接続成功！(ONLINE)"); };
-                ws.onmessage = (event) => { 
-                    log(`📩 受信: ${event.data}`); // 受信データを見る
-                    try {
-                        const data = JSON.parse(event.data); 
-                        if (data.type === 'damage') addDarkness(data.amount); 
-                        else if (data.type === 'heal') removeDarkness(data.amount);
-                        else if (data.type === 'status_change') {
-                            isActive = data.is_active;
-                            log(`ℹ️ システム状態変更: ${isActive}`);
-                        }
-                    } catch(e) {
-                        log(`⚠️ データ解析エラー: ${e}`);
-                    }
-                };
-                ws.onclose = (e) => { 
-                    log(`❌ 切断されました。3秒後に再接続... (${e.code})`); 
-                    setTimeout(connectWS, 3000); 
-                };
-                ws.onerror = (e) => { log("⚠️ WebSocketエラー発生"); };
-
-            } catch (e) {
-                log(`❌ 接続処理エラー: ${e}`);
-            }
+        function updateSystemState(active) {
+            isActive = active;
+            if (isActive) document.body.classList.remove("system-off");
+            else document.body.classList.add("system-off");
         }
 
         function initGrid() {
-            log(`🧩 グリッド生成: ${GRID_COLS}x${GRID_ROWS}`);
             let gridMap = Array.from({ length: GRID_ROWS }, () => Array(GRID_COLS).fill(null));
+            for (let r = 0; r < GRID_ROWS; r++) { for (let c = 0; c < GRID_COLS; c++) { const block = document.createElement('div'); block.classList.add('block'); container.appendChild(block); gridMap[r][c] = block; } }
             
-            // ブロック配置
-            for (let r = 0; r < GRID_ROWS; r++) { 
-                for (let c = 0; c < GRID_COLS; c++) { 
-                    const block = document.createElement('div'); 
-                    block.classList.add('block'); 
-                    container.appendChild(block); 
-                    gridMap[r][c] = block; 
-                } 
-            }
-            
-            // 渦巻き計算
             let top = 0, bottom = GRID_ROWS - 1, left = 0, right = GRID_COLS - 1; let dir = 0;
             while (top <= bottom && left <= right) {
                 if (dir === 0) { for (let i = left; i <= right; i++) spiralOrder.push(gridMap[top][i]); top++; }
@@ -150,15 +106,12 @@
                 else if (dir === 3) { for (let i = bottom; i >= top; i--) spiralOrder.push(gridMap[i][left]); left++; }
                 dir = (dir + 1) % 4;
             }
-            log(`🧩 ブロック生成完了: ${spiralOrder.length}個`);
             updateVisuals();
         }
 
         function updateVisuals() {
             scoreVal.innerText = Math.floor(currentDarkness);
             const blocksToDraw = Math.floor((currentDarkness / MAX_DARKNESS) * spiralOrder.length);
-            
-            // UI更新
             for(let i=0; i<spiralOrder.length; i++) {
                 if (i < blocksToDraw) spiralOrder[i].classList.add('active');
                 else spiralOrder[i].classList.remove('active');
@@ -177,11 +130,9 @@
             updateVisuals(); 
         }
         
-        // 実行
-        window.onload = function() {
-            initGrid(); 
-            connectWS();
-        };
+        initGrid(); 
+        connectWS();
+        fetch('/api/status').then(r => r.json()).then(d => updateSystemState(d.is_active));
     </script>
 </body>
 </html>

@@ -9,10 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 from pydantic import BaseModel
 
-# --- 設定 ---
-# Railwayの金庫からキーを取り出す
 API_KEY = os.environ.get("YOUTUBE_API_KEY", "")
-UPDATE_INTERVAL = 5 # 監視間隔（秒）
+UPDATE_INTERVAL = 5 
 
 app = FastAPI()
 app.add_middleware(
@@ -23,15 +21,13 @@ app.add_middleware(
 )
 templates = Jinja2Templates(directory="templates")
 
-# --- サーバーのメモリ ---
 server_state = {
-    "is_active": True,       # システムON/OFF
-    "video_id": "",          # YouTubeビデオID
-    "chat_id": None,         # チャットID
-    "next_page_token": None  # 次の読み込み位置
+    "is_active": True,
+    "video_id": "",
+    "chat_id": None,
+    "next_page_token": None
 }
 
-# WebSocket管理
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
@@ -49,19 +45,14 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-# --- YouTube監視タスク (裏側でずっと動くロボット) ---
 async def monitor_youtube():
     print("🤖 監視ロボット: 起動しました")
-    
     while True:
-        # 1. システムがOFF、またはビデオIDがない、またはキーがない時はお休み
         if not server_state["is_active"] or not server_state["video_id"] or not API_KEY:
             await asyncio.sleep(5)
             continue
 
-        # 2. チャットIDがまだない場合、取りに行く
         if not server_state["chat_id"]:
-            print(f"🤖 監視ロボット: チャットIDを探しています... ({server_state['video_id']})")
             try:
                 url = "https://www.googleapis.com/youtube/v3/videos"
                 params = {"part": "liveStreamingDetails", "id": server_state["video_id"], "key": API_KEY}
@@ -72,7 +63,6 @@ async def monitor_youtube():
                     server_state["chat_id"] = items[0]["liveStreamingDetails"].get("activeLiveChatId")
                     print(f"✅ チャット特定成功: {server_state['chat_id']}")
                 else:
-                    print("⚠️ チャットが見つかりません")
                     await asyncio.sleep(10)
                     continue
             except Exception as e:
@@ -80,7 +70,6 @@ async def monitor_youtube():
                 await asyncio.sleep(10)
                 continue
 
-        # 3. コメントを取得してゲームに反映
         try:
             url = "https://www.googleapis.com/youtube/v3/liveChat/messages"
             params = {"liveChatId": server_state["chat_id"], "part": "snippet,authorDetails", "key": API_KEY}
@@ -93,48 +82,48 @@ async def monitor_youtube():
             if "items" in data:
                 for item in data["items"]:
                     msg = item["snippet"].get("displayMessage", "")
-                    author = item["authorDetails"]["displayName"]
+                    author = item["authorDetails"]["displayName"] # ★名前を取得
                     snippet_type = item["snippet"]["type"]
 
-                    # スパチャ判定
                     if snippet_type == "superChatEvent":
                         details = item["snippet"]["superChatDetails"]
                         amt = details["amountDisplayString"]
                         print(f"💰 SP: {author} {amt}")
+                        # ★名前に金額も含める
+                        display_name = f"{author} ({amt})"
                         if "10,000" in amt or "10000" in amt: 
-                            await manager.broadcast(json.dumps({"type": "heal", "amount": 10000}))
+                            await manager.broadcast(json.dumps({"type": "heal", "amount": 10000, "user": display_name}))
                         else: 
-                            await manager.broadcast(json.dumps({"type": "heal", "amount": 1000}))
+                            await manager.broadcast(json.dumps({"type": "heal", "amount": 1000, "user": display_name}))
                     
-                    # 通常コメント判定
                     else:
-                        if any(w in msg for w in ["終わらせろ", "終了", "つまらん", "帰れ", "オワコン"]):
+                        # ★キーワードに「闇」を追加
+                        damage_words = ["闇", "ダーク", "終わらせろ", "終了", "つまらん", "帰れ", "オワコン"]
+                        heal_words = ["光", "ライト", "希望", "頑張れ", "応援", "まだ"]
+
+                        if any(w in msg for w in damage_words):
                             print(f"👿 ANTI: {msg}")
-                            await manager.broadcast(json.dumps({"type": "damage", "amount": 500}))
-                        elif any(w in msg for w in ["頑張れ", "応援", "まだ", "光"]):
+                            await manager.broadcast(json.dumps({"type": "damage", "amount": 500, "user": author}))
+                        
+                        elif any(w in msg for w in heal_words):
                             print(f"😇 HEAL: {msg}")
-                            await manager.broadcast(json.dumps({"type": "heal", "amount": 500}))
+                            await manager.broadcast(json.dumps({"type": "heal", "amount": 500, "user": author}))
 
                 server_state["next_page_token"] = data.get("nextPageToken")
-            
             else:
                 if "error" in data:
-                    print("⚠️ APIエラー、再接続します")
                     server_state["chat_id"] = None
                     server_state["next_page_token"] = None
 
         except Exception as e:
             print(f"監視エラー: {e}")
 
-        # 待機
         await asyncio.sleep(UPDATE_INTERVAL)
 
-# --- サーバー起動時にロボットも起動 ---
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(monitor_youtube())
 
-# --- 以下、Webサーバー機能 ---
 class VideoIdReq(BaseModel):
     video_id: str
 
@@ -159,6 +148,8 @@ async def websocket_endpoint(websocket: WebSocket):
 async def action(request: Request):
     if not server_state["is_active"]: return {"status": "ignored"}
     data = await request.json()
+    # 手動テストの場合は名前を「MEGWIN(TEST)」にする
+    data["user"] = "MEGWIN(TEST)"
     await manager.broadcast(json.dumps(data))
     return {"status": "ok"}
 

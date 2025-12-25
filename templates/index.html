@@ -47,22 +47,31 @@
         white-space: nowrap; letter-spacing: 15px; font-family: 'Impact', sans-serif;
     }
 
-    /* 下部の説明バー */
+    /* 下部の説明バー（タイトル） */
+    /* ★変更：100px上に移動 (150px -> 250px) */
     #status-bar { 
-        position: absolute; bottom: 150px; left: 50%; transform: translateX(-50%); 
+        position: absolute; bottom: 250px; left: 50%; transform: translateX(-50%); 
         color: #fff; background: rgba(0, 0, 0, 0.8); padding: 15px 50px; 
         border: 4px solid #fff; z-index: 100; font-size: 32px; border-radius: 10px;
         box-shadow: 0 0 20px rgba(0,0,0,0.8); text-align: center; white-space: nowrap;
     }
 
-    /* ★追加：タイマー表示 */
-    #timer-display {
-        position: absolute; bottom: 230px; /* バーの少し上 */
+    /* タイマー表示 */
+    /* ★変更：タイトルのさらに上に配置 */
+    #timer-container {
+        position: absolute; bottom: 340px; 
         left: 50%; transform: translateX(-50%);
+        text-align: center; z-index: 100;
+    }
+    #timer-label {
+        color: #ddd; font-size: 1.5rem; letter-spacing: 2px;
+        text-shadow: 2px 2px 0 #000; display: block;
+    }
+    #timer-display {
         font-size: 5rem; font-weight: bold; color: #fff;
-        text-shadow: 4px 4px 0 #000; /* 黒い影でくっきり */
-        z-index: 100; font-variant-numeric: tabular-nums; /* 数字が動いてもガタつかない */
-        letter-spacing: 5px;
+        text-shadow: 4px 4px 0 #000; 
+        font-variant-numeric: tabular-nums; letter-spacing: 5px;
+        line-height: 1;
     }
     
     /* アクションユーザー表示 */
@@ -89,14 +98,20 @@
     <div id="grid-container"></div>
     <div id="game-over">GAME OVER</div>
     
-    <div id="timer-display">00:00:00</div>
+    <div id="timer-container">
+        <span id="timer-label">経過時間</span>
+        <div id="timer-display">00:00:00</div>
+    </div>
 
     <div id="user-action-display"></div>
+    
     <div id="status-bar">闇VS光　コメントorスパチャ</div>
 
     <script>
         const MAX_DARKNESS = 20000; 
         const INITIAL_DARKNESS = 10000; 
+        
+        // 1対1のガチンコ設定（1発100ポイント）
         const BASE_MULTIPLIER = 0.2; 
 
         const GRID_COLS = 32; 
@@ -123,9 +138,9 @@
         function startTimer() {
             startTime = Date.now();
             isGameOver = false;
-            timerDisplay.style.color = "#fff"; // 白に戻す
+            timerDisplay.style.color = "#fff"; 
             if (timerInterval) clearInterval(timerInterval);
-            timerInterval = setInterval(updateTimer, 100); // 0.1秒ごとに更新
+            timerInterval = setInterval(updateTimer, 100); 
         }
 
         function stopTimer() {
@@ -164,15 +179,13 @@
                     }
                 }
                 else if (data.type === 'status_change') {
-                    // システムONになったらタイマーリセット＆スタート
                     if (data.is_active && !isActive) {
                         currentDarkness = INITIAL_DARKNESS;
                         updateVisuals();
-                        startTimer();
+                        startTimer(); // システムONでスタート
                     }
-                    // システムOFFになったらタイマーストップ
                     else if (!data.is_active) {
-                        stopTimer();
+                        stopTimer(); // システムOFFでストップ
                     }
                     updateSystemState(data.is_active);
                 }
@@ -182,7 +195,7 @@
 
         let hideTimeout;
         function showUserAction(name, iconUrl, type, color, money) {
-            // ゲームオーバー中は表示しない
+            // ゲームオーバー中はユーザー名も出さない（完全沈黙）
             if (currentDarkness >= MAX_DARKNESS) return;
 
             if (!name) return;
@@ -232,8 +245,8 @@
                 gameOverText.style.opacity = 1;
                 if (!isGameOver) {
                     isGameOver = true;
-                    stopTimer(); // ゲームオーバーでタイマーストップ！
-                    timerDisplay.style.color = "red"; // タイマーを赤くする
+                    stopTimer(); // タイマーストップ
+                    timerDisplay.style.color = "red"; // タイマー赤文字
                 }
             } else {
                 gameOverText.style.opacity = 0;
@@ -247,7 +260,7 @@
         }
 
         function removeDarkness(amount) { 
-            // ゲームオーバーなら無視
+            // ゲームオーバーなら光は無視
             if (currentDarkness >= MAX_DARKNESS) return;
             if (currentDarkness <= 0) return; 
             
@@ -259,7 +272,7 @@
         connectWS();
         fetch('/api/status').then(r => r.json()).then(d => {
             updateSystemState(d.is_active);
-            if(d.is_active) startTimer(); // 読み込み時ONならタイマー開始
+            if(d.is_active) startTimer();
         });
     </script>
 </body>
